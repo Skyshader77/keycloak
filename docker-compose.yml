@@ -6,6 +6,7 @@ services:
       - .:/usr/src/app
       - ~/.m2:/root/.m2
     working_dir: /usr/src/app
+    network_mode: "host"
     command: 
       - mvn
       - -e
@@ -14,21 +15,7 @@ services:
       - sonar:sonar
       - -Dsonar.projectKey=keycloak
       - -Dsonar.projectName=keycloak
-      - -Dsonar.host.url=http://sonarqube:9000
+      - -Dsonar.host.url=http://localhost:9000
       - -Dsonar.token=sqp_931ef157ee314626680d636d7645871dca62df17
       - -Dinsecure.repositories=WARN
       - -DskipTests
-    networks:
-      - sonar-net
-    depends_on:
-      - sonarqube
-
-  sonarqube:
-    image: sonarqube:community
-    ports:
-      - "9000:9000"
-    networks:
-      - sonar-net
-
-networks:
-  sonar-net:
