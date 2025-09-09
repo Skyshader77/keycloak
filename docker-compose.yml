@@ -6,17 +6,22 @@ services:
       - .:/usr/src/app
       - ~/.m2:/root/.m2
     working_dir: /usr/src/app
-    command: >
-      mvn -e clean verify sonar:sonar \
-      -Dsonar.projectKey=keycloak \
-      -Dsonar.projectName='keycloak' \
-      -Dsonar.host.url=http://localhost:9000 \
-      -Dsonar.token=sqp_931ef157ee314626680d636d7645871dca62df17 \
-      -Dinsecure.repositories=WARN \
-      -DskipTests \
-      > maven-output.log 2>&1
+    command: 
+      - mvn
+      - -e
+      - clean
+      - verify
+      - sonar:sonar
+      - -Dsonar.projectKey=keycloak
+      - -Dsonar.projectName=keycloak
+      - -Dsonar.host.url=http://sonarqube:9000
+      - -Dsonar.token=sqp_931ef157ee314626680d636d7645871dca62df17
+      - -Dinsecure.repositories=WARN
+      - -DskipTests
     networks:
       - sonar-net
+    depends_on:
+      - sonarqube
 
   sonarqube:
     image: sonarqube:community
