@@ -27,9 +27,12 @@ http://localhost:9000
 7) Click on Other CI in the Analysis ooptions
 
 8) Generate the token
-9) Copy the token's value and write it to the Dsonar.token value in the docker-compose.yml in the Git repository's root.
 
-10) run the analysis
+TODO:in the yaml file, find a way to only run the analysis for the admin console.
+
+10) Copy the token's value and write it to the Dsonar.token value in the docker-compose.yml in the Git repository's root.
+
+11) run the analysis
 ```sh
 sudo docker-compose up maven-sonar
 ```
