@@ -9,6 +9,7 @@ services:
     network_mode: "host"
     command: 
       - mvn
+      - -X
       - -e
       - clean
       - verify
