@@ -14,6 +14,7 @@ services:
       -Dsonar.token=sqp_931ef157ee314626680d636d7645871dca62df17
       -Dinsecure.repositories=WARN
       -DskipTests
+      -Dsonar.verbose=true
     networks:
       - sonar-net
 
