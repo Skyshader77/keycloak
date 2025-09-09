@@ -10,19 +10,19 @@ sudo systemctl start docker
 ```sh
 sudo docker run -d -p 9000:9000 sonarqube:community
 ```
-2) Clone the repo inside 
+2) Clone the repo
 
 ```sh
 git clone git@github.com:Skyshader77/keycloak.git
 ```
 
-4) go to the project's root directory
+4) Go to the repo's root directory
 
 5) Go to your sonarqube instance and create an account
 ```sh
 http://localhost:9000
 ```
-6) Create a local project. Project name should be keycloak.
+6) Create a local project. IMPORTANT: Project name should be keycloak.
 
 7) Click on Other CI in the Analysis ooptions
 
