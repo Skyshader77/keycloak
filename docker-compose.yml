@@ -7,7 +7,7 @@ services:
       - ~/.m2:/root/.m2
     working_dir: /usr/src/app
     command: >
-      mvn clean -X -e verify sonar:sonar
+      mvn -X -e clean verify sonar:sonar
       -Dsonar.projectKey=keycloak
       -Dsonar.projectName='keycloak'
       -Dsonar.host.url=http://sonarqube:9000
