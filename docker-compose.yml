@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   maven-sonar:
-    image: maven:3.8.6-openjdk-17
+    image: maven:3.9.6-openjdk-17
     volumes:
       - .:/usr/src/app
       - ~/.m2:/root/.m2
