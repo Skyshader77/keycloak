@@ -7,15 +7,18 @@ services:
       - ~/.m2:/root/.m2
     working_dir: /usr/src/app
     network_mode: "host"
-    command: 
+    command:
       - /bin/bash
       - -c
       - |
+        # Run SonarQube analysis with proper patterns for your specific setup
         mvn -X -e clean verify sonar:sonar \
           -Dsonar.projectKey=keycloak \
           -Dsonar.projectName=keycloak \
           -Dsonar.host.url=http://localhost:9000 \
-          -Dsonar.token=sqp_d2caa6543745b947d90b4571dc92c6cc115c4b9a \
+          -Dsonar.token=sqp_780fa96b6fa9819fb775c59e61618fb84070f10e \
+          -Dsonar.inclusions="services/src/main/java/org/keycloak/services/resources/admin/**/*.java,js/apps/admin-ui/**/*.ts,js/apps/admin-ui/**/*.tsx,js/apps/admin-ui/**/*.js,js/apps/admin-ui/**/*.jsx" \
+          -Dsonar.exclusions="**/node_modules/**,**/target/**,**/*.test.*,**/*.spec.*,**/test/**,**/tests/**" \
           -Dinsecure.repositories=WARN \
           -DskipTests 2>&1 | tee /usr/src/app/maven-output.log
         echo "Exit code: $?"
