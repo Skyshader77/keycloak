@@ -106,7 +106,7 @@ public class ClientsResource {
      * @param firstResult the first result
      * @param maxResults the max results to return
      */
-    @GET
+/*     @GET
     @Produces(MediaType.APPLICATION_JSON)
     @NoCache
     @Tag(name = KeycloakOpenAPI.Admin.Tags.CLIENTS)
@@ -168,7 +168,97 @@ public class ClientsResource {
         }
 
         return s;
+    } */
+
+    @GET
+@Produces(MediaType.APPLICATION_JSON)
+@NoCache
+@Tag(name = KeycloakOpenAPI.Admin.Tags.CLIENTS)
+@Operation(
+    summary = "Get clients belonging to the realm.",
+    description = "If a client can’t be retrieved from the storage due to a problem with the underlying storage, it is silently removed from the returned list. This ensures that concurrent modifications to the list don’t prevent callers from retrieving this list."
+)
+public Stream<ClientRepresentation> getClients(
+        @Parameter(description = "filter by clientId") @QueryParam("clientId") String clientId,
+        @Parameter(description = "filter clients that cannot be viewed in full by admin") @QueryParam("viewableOnly") @DefaultValue("false") boolean viewableOnly,
+        @Parameter(description = "whether this is a search query or a getClientById query") @QueryParam("search") @DefaultValue("false") boolean search,
+        @QueryParam("q") String searchQuery,
+        @Parameter(description = "the first result") @QueryParam("first") Integer firstResult,
+        @Parameter(description = "the max results to return") @QueryParam("max") Integer maxResults) {
+
+    auth.clients().requireList();
+
+    boolean canView = AdminPermissionsSchema.SCHEMA.isAdminPermissionsEnabled(realm) || auth.clients().canView();
+    Stream<ClientModel> clientModels = resolveClientModels(clientId, searchQuery, search, canView, firstResult, maxResults);
+
+    Stream<ClientRepresentation> result = ModelToRepresentation.filterValidRepresentations(
+            clientModels,
+            c -> toRepresentationOrMinimal(c, canView, viewableOnly)
+    );
+
+    if (!canView) {
+        result = paginatedStream(result, firstResult, maxResults);
     }
+
+    return result;
+}
+
+private Stream<ClientModel> resolveClientModels(String clientId, String searchQuery, boolean search,
+                                                boolean canView, Integer firstResult, Integer maxResults) {
+    if (searchQuery != null) {
+        Map<String, String> attributes = SearchQueryUtils.getFields(searchQuery);
+        return canView
+                ? realm.searchClientByAttributes(attributes, firstResult, maxResults)
+                : realm.searchClientByAttributes(attributes, -1, -1);
+    }
+
+    if (isBlank(clientId)) {
+        return canView
+                ? realm.getClientsStream(firstResult, maxResults)
+                : realm.getClientsStream();
+    }
+
+    if (search) {
+        return canView
+                ? realm.searchClientByClientIdStream(clientId, firstResult, maxResults)
+                : realm.searchClientByClientIdStream(clientId, -1, -1);
+    }
+
+    return resolveSingleClient(clientId, canView);
+}
+
+private Stream<ClientModel> resolveSingleClient(String clientId, boolean canView) {
+    ClientModel client = realm.getClientByClientId(clientId);
+    if (client == null) return Stream.empty();
+
+    if (AdminPermissionsSchema.SCHEMA.isAdminPermissionsEnabled(realm)) {
+        return Stream.of(client).filter(auth.clients()::canView);
+    }
+    return Stream.of(client);
+}
+
+private ClientRepresentation toRepresentationOrMinimal(ClientModel client, boolean canView, boolean viewableOnly) {
+    if (canView || auth.clients().canView(client)) {
+        ClientRepresentation rep = ModelToRepresentation.toRepresentation(client, session);
+        rep.setAccess(auth.clients().getAccess(client));
+        return rep;
+    }
+
+    if (!viewableOnly && auth.clients().canView(client)) {
+        ClientRepresentation rep = new ClientRepresentation();
+        rep.setId(client.getId());
+        rep.setClientId(client.getClientId());
+        rep.setDescription(client.getDescription());
+        return rep;
+    }
+
+    return null;
+}
+
+private boolean isBlank(String value) {
+    return value == null || value.trim().isEmpty();
+}
+
 
     private AuthorizationService getAuthorizationService(ClientModel clientModel) {
         return new AuthorizationService(session, clientModel, auth, adminEvent);

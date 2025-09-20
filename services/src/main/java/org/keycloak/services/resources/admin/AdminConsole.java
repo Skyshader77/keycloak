@@ -209,7 +209,7 @@ public class AdminConsole {
      * @param currentRealm
      * @return
      */
-    @Path("whoami")
+    /* @Path("whoami")
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     @NoCache
@@ -281,7 +281,116 @@ public class AdminConsole {
                 .allowedMethods("GET")
                 .auth()
                 .add(Response.ok(new WhoAmI(user.getId(), realm.getName(), displayName, createRealm, realmAccess, locale, Boolean.parseBoolean(user.getFirstAttribute(IS_TEMP_ADMIN_ATTR_NAME)))));
+    } */
+
+@Path("whoami")
+@GET
+@Produces(MediaType.APPLICATION_JSON)
+@NoCache
+public Response whoAmI(@QueryParam("currentRealm") String currentRealm) {
+    if (!Profile.isFeatureEnabled(Profile.Feature.ADMIN_API)) {
+        throw new NotFoundException();
     }
+
+    RealmManager realmManager = new RealmManager(session);
+    AuthenticationManager.AuthResult authResult = authenticateRequest();
+    validateIssuedFor(authResult);
+
+    UserModel user = authResult.getUser();
+    String displayName = resolveDisplayName(user);
+
+    RealmModel masterRealm = getAdminstrationRealm(realmManager);
+    if (masterRealm == null) {
+        throw new NotFoundException("No realm found");
+    }
+
+    Map<String, Set<String>> realmAccess = new HashMap<>();
+    boolean createRealm = buildRealmAccess(user, currentRealm, masterRealm, realmAccess);
+
+    if (realmAccess.isEmpty() || realmAccess.values().iterator().next().isEmpty()) {
+        throw new ForbiddenException("No realm access");
+    }
+
+    Locale locale = session.getContext().resolveLocale(user);
+
+    return Cors.builder()
+            .allowedOrigins(authResult.getToken())
+            .allowedMethods("GET")
+            .auth()
+            .add(Response.ok(
+                    new WhoAmI(
+                            user.getId(),
+                            realm.getName(),
+                            displayName,
+                            createRealm,
+                            realmAccess,
+                            locale,
+                            Boolean.parseBoolean(user.getFirstAttribute(IS_TEMP_ADMIN_ATTR_NAME))
+                    )));
+}
+
+private AuthenticationManager.AuthResult authenticateRequest() {
+    AuthenticationManager.AuthResult result = new AppAuthManager.BearerTokenAuthenticator(session)
+            .setRealm(realm)
+            .setConnection(clientConnection)
+            .setHeaders(session.getContext().getRequestHeaders())
+            .authenticate();
+
+    if (result == null) {
+        throw new NotAuthorizedException("Bearer");
+    }
+    return result;
+}
+
+private void validateIssuedFor(AuthenticationManager.AuthResult authResult) {
+    final String issuedFor = authResult.getToken().getIssuedFor();
+    if (Constants.ADMIN_CONSOLE_CLIENT_ID.equals(issuedFor)) {
+        return; // valid admin console client
+    }
+
+    if (issuedFor == null) {
+        throw new ForbiddenException("No azp claim in the token");
+    }
+
+    ClientModel client = session.clients().getClientByClientId(realm, issuedFor);
+    boolean isAdminConsole = client != null &&
+            Boolean.parseBoolean(client.getAttribute(Constants.SECURITY_ADMIN_CONSOLE_ATTR));
+    if (!isAdminConsole) {
+        throw new ForbiddenException("Token issued for an application that is not the admin console: " + issuedFor);
+    }
+}
+
+private String resolveDisplayName(UserModel user) {
+    String first = trimToNull(user.getFirstName());
+    String last = trimToNull(user.getLastName());
+
+    if (first != null || last != null) {
+        return (first != null ? first : "") + (last != null ? " " + last : "");
+    }
+    return user.getUsername();
+}
+
+private String trimToNull(String value) {
+    if (value == null) return null;
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? null : trimmed;
+}
+
+private boolean buildRealmAccess(UserModel user, String currentRealm, RealmModel masterRealm,
+                                 Map<String, Set<String>> realmAccess) {
+    if (realm.equals(masterRealm)) {
+        logger.debug("setting up realm access for a master realm user");
+        RoleModel createRealmRole = masterRealm.getRole(AdminRoles.CREATE_REALM);
+        boolean createRealm = createRealmRole != null && user.hasRole(createRealmRole);
+        addMasterRealmAccess(user, currentRealm != null ? currentRealm : realm.getName(), realmAccess);
+        return createRealm;
+    } else {
+        logger.debug("setting up realm access for a realm user");
+        addRealmAccess(realm, user, realmAccess);
+        return false;
+    }
+}
+
 
     private void addRealmAccess(RealmModel realm, UserModel user, Map<String, Set<String>> realmAdminAccess) {
         RealmManager realmManager = new RealmManager(session);

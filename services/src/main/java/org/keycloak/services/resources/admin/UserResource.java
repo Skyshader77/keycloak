@@ -291,7 +291,7 @@ public class UserResource {
         return null;
     }
 
-    public static void updateUserFromRep(UserProfile profile, UserModel user, UserRepresentation rep, KeycloakSession session, boolean isUpdateExistingUser) {
+/*     public static void updateUserFromRep(UserProfile profile, UserModel user, UserRepresentation rep, KeycloakSession session, boolean isUpdateExistingUser) {
         boolean removeMissingRequiredActions = isUpdateExistingUser;
 
         if (rep.isEnabled() != null) user.setEnabled(rep.isEnabled());
@@ -326,7 +326,65 @@ public class UserResource {
                 }
             }
         }
+    } */
+    public static void updateUserFromRep(UserProfile profile, UserModel user, UserRepresentation rep,
+                                     KeycloakSession session, boolean isUpdateExistingUser) {
+    applyBasicUserProperties(user, rep, isUpdateExistingUser);
+    updateFederationLink(user, rep);
+    updateRequiredActions(user, rep, session, isUpdateExistingUser);
+    updateCredentials(user, rep);
+}
+
+private static void applyBasicUserProperties(UserModel user, UserRepresentation rep, boolean isUpdateExistingUser) {
+    if (rep.isEnabled() != null) {
+        user.setEnabled(rep.isEnabled());
     }
+    if (rep.isEmailVerified() != null) {
+        user.setEmailVerified(rep.isEmailVerified());
+    }
+    if (rep.getCreatedTimestamp() != null && !isUpdateExistingUser) {
+        user.setCreatedTimestamp(rep.getCreatedTimestamp());
+    }
+}
+
+private static void updateFederationLink(UserModel user, UserRepresentation rep) {
+    if (rep.getFederationLink() != null) {
+        user.setFederationLink(rep.getFederationLink());
+    }
+}
+
+private static void updateRequiredActions(UserModel user, UserRepresentation rep, KeycloakSession session,
+                                          boolean removeMissingRequiredActions) {
+    List<String> reqActions = rep.getRequiredActions();
+    if (reqActions == null) return;
+
+    session.getKeycloakSessionFactory()
+            .getProviderFactoriesStream(RequiredActionProvider.class)
+            .map(ProviderFactory::getId)
+            .distinct()
+            .sorted()
+            .forEach(action -> applyRequiredAction(user, reqActions, action, removeMissingRequiredActions));
+}
+
+private static void applyRequiredAction(UserModel user, List<String> reqActions, String action,
+                                        boolean removeMissingRequiredActions) {
+    if (reqActions.contains(action)) {
+        user.addRequiredAction(action);
+    } else if (removeMissingRequiredActions) {
+        user.removeRequiredAction(action);
+    }
+}
+
+private static void updateCredentials(UserModel user, UserRepresentation rep) {
+    List<CredentialRepresentation> credentials = rep.getCredentials();
+    if (credentials == null) return;
+
+    credentials.stream()
+            .filter(credential -> CredentialRepresentation.PASSWORD.equals(credential.getType()))
+            .filter(credential -> Boolean.TRUE.equals(credential.isTemporary()))
+            .forEach(credential -> user.addRequiredAction(UserModel.RequiredAction.UPDATE_PASSWORD));
+}
+
 
     /**
      * Get representation of the user

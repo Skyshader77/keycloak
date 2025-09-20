@@ -446,7 +446,7 @@ public class RealmAdminResource {
      * @param rep
      * @return
      */
-    @PUT
+    /* @PUT
     @Consumes(MediaType.APPLICATION_JSON)
     @Tag(name = KeycloakOpenAPI.Admin.Tags.REALMS_ADMIN)
     @Operation(summary = "Update the top-level information of the realm Any user, roles or client information in the representation will be ignored.",
@@ -534,7 +534,120 @@ public class RealmAdminResource {
             logger.error(e.getMessage(), e);
             throw ErrorResponse.error("Failed to update realm", Response.Status.INTERNAL_SERVER_ERROR);
         }
+    } */
+
+@PUT
+@Consumes(MediaType.APPLICATION_JSON)
+@Tag(name = KeycloakOpenAPI.Admin.Tags.REALMS_ADMIN)
+@Operation(
+    summary = "Update the top-level information of the realm Any user, roles or client information in the representation will be ignored.",
+    description = "This will only update top-level attributes of the realm."
+)
+@APIResponses(value = {
+    @APIResponse(responseCode = "204", description = "No Content"),
+    @APIResponse(responseCode = "400", description = "Bad Request"),
+    @APIResponse(responseCode = "403", description = "Forbidden"),
+    @APIResponse(responseCode = "404", description = "Not Found"),
+    @APIResponse(responseCode = "409", description = "Conflict"),
+    @APIResponse(responseCode = "500", description = "Internal Server Error")
+})
+public Response updateRealm(final RealmRepresentation rep) {
+    auth.realm().requireManageRealm();
+    logger.debugf("updating realm: %s", realm.getName());
+
+    validateRealmNameChange(rep);
+    validateReservedChars(rep);
+    validateSMTP(rep);
+    validateKeysAndCerts(rep);
+    validateAccessCodeLifespans(rep);
+
+    try {
+        RepresentationToModel.updateRealm(rep, realm, session);
+        StoreSyncEvent.fire(session, realm, false);
+        session.getContext().getUri(); // refresh map in context
+
+        adminEvent.operation(OperationType.UPDATE).representation(rep).success();
+        return Response.noContent().build();
+    } catch (ModelDuplicateException e) {
+        throw ErrorResponse.exists("Realm with same name exists");
+    } catch (ModelIllegalStateException e) {
+        logger.error(e.getMessage(), e);
+        throw ErrorResponse.error(e.getMessage(), Status.INTERNAL_SERVER_ERROR);
+    } catch (ModelException e) {
+        throw ErrorResponse.error(e.getMessage(), Status.BAD_REQUEST);
+    } catch (org.keycloak.services.ErrorResponseException e) {
+        throw e;
+    } catch (Exception e) {
+        logger.error(e.getMessage(), e);
+        throw ErrorResponse.error("Failed to update realm", Response.Status.INTERNAL_SERVER_ERROR);
     }
+}
+
+private void validateRealmNameChange(RealmRepresentation rep) {
+    if (Config.getAdminRealm().equals(realm.getName())
+            && rep.getRealm() != null
+            && !rep.getRealm().equals(Config.getAdminRealm())) {
+        throw ErrorResponse.error("Can't rename master realm", Status.BAD_REQUEST);
+    }
+}
+
+private void validateReservedChars(RealmRepresentation rep) {
+    try {
+        ReservedCharValidator.validate(rep.getRealm());
+        ReservedCharValidator.validateLocales(rep.getSupportedLocales());
+        ReservedCharValidator.validateSecurityHeaders(rep.getBrowserSecurityHeaders());
+    } catch (ReservedCharValidator.ReservedCharException e) {
+        logger.error(e.getMessage(), e);
+        throw ErrorResponse.error(e.getMessage(), Status.BAD_REQUEST);
+    }
+}
+
+private void validateSMTP(RealmRepresentation rep) {
+    try {
+        SMTPUtil.checkSMTPConfiguration(session, rep.getSmtpServer());
+    } catch (EmailException e) {
+        logger.error(e.getMessage(), e);
+        throw ErrorResponse.error(e.getMessage(), Status.BAD_REQUEST);
+    }
+}
+
+private void validateKeysAndCerts(RealmRepresentation rep) {
+    if (!Constants.GENERATE.equals(rep.getPublicKey())) {
+        validateKeyPair(rep);
+        validateCertificate(rep);
+    }
+}
+
+private void validateKeyPair(RealmRepresentation rep) {
+    if (rep.getPrivateKey() != null && rep.getPublicKey() != null) {
+        try {
+            KeyPairVerifier.verify(rep.getPrivateKey(), rep.getPublicKey());
+        } catch (VerificationException e) {
+            throw ErrorResponse.error(e.getMessage(), Status.BAD_REQUEST);
+        }
+    }
+}
+
+private void validateCertificate(RealmRepresentation rep) {
+    if (rep.getCertificate() == null) return;
+    try {
+        X509Certificate cert = PemUtils.decodeCertificate(rep.getCertificate());
+        if (cert == null) {
+            throw ErrorResponse.error("Failed to decode certificate", Status.BAD_REQUEST);
+        }
+    } catch (Exception e) {
+        throw ErrorResponse.error("Failed to decode certificate", Status.BAD_REQUEST);
+    }
+}
+
+private void validateAccessCodeLifespans(RealmRepresentation rep) {
+    if (rep.getAccessCodeLifespanLogin() != null && rep.getAccessCodeLifespanUserAction() != null) {
+        if (rep.getAccessCodeLifespanLogin() < 1 || rep.getAccessCodeLifespanUserAction() < 1) {
+            throw ErrorResponse.error("AccessCodeLifespanLogin or AccessCodeLifespanUserAction cannot be 0",
+                    Status.BAD_REQUEST);
+        }
+    }
+}
 
     /**
      * Delete the realm

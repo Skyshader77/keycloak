@@ -814,7 +814,7 @@ public class ClientResource {
         }
     }
 
-    private void updateClientFromRep(ClientRepresentation rep, ClientModel client, KeycloakSession session) throws ModelDuplicateException {
+    /* private void updateClientFromRep(ClientRepresentation rep, ClientModel client, KeycloakSession session) throws ModelDuplicateException {
         UserModel serviceAccount = this.session.users().getServiceAccount(client);
         boolean serviceAccountScopeAssigned = client.getClientScopes(true).containsKey(ServiceAccountConstants.SERVICE_ACCOUNT_SCOPE);
         if (Boolean.TRUE.equals(rep.isServiceAccountsEnabled())) {
@@ -842,7 +842,58 @@ public class ClientResource {
         RepresentationToModel.updateClient(rep, client, session);
         RepresentationToModel.updateClientProtocolMappers(rep, client);
         updateAuthorizationSettings(rep);
+    } */
+
+    private void updateClientFromRep(ClientRepresentation rep, ClientModel client, KeycloakSession session) throws ModelDuplicateException {
+    handleServiceAccountUpdate(rep, client, session);
+    handleClientIdChange(rep, client, session);
+    handleScopeChange(rep, client);
+    handleBearerOrPublic(rep);
+
+    RepresentationToModel.updateClient(rep, client, session);
+    RepresentationToModel.updateClientProtocolMappers(rep, client);
+    updateAuthorizationSettings(rep);
+}
+
+private void handleServiceAccountUpdate(ClientRepresentation rep, ClientModel client, KeycloakSession session) {
+    UserModel serviceAccount = this.session.users().getServiceAccount(client);
+    boolean scopeAssigned = client.getClientScopes(true).containsKey(ServiceAccountConstants.SERVICE_ACCOUNT_SCOPE);
+    ClientManager clientManager = new ClientManager(new RealmManager(session));
+
+    if (Boolean.TRUE.equals(rep.isServiceAccountsEnabled())) {
+        if (serviceAccount == null || !scopeAssigned) {
+            clientManager.enableServiceAccount(client);
+        }
+        return;
     }
+
+    if (Boolean.FALSE.equals(rep.isServiceAccountsEnabled()) || !client.isServiceAccountsEnabled()) {
+        if (serviceAccount != null || scopeAssigned) {
+            clientManager.disableServiceAccount(client);
+        }
+    }
+}
+
+private void handleClientIdChange(ClientRepresentation rep, ClientModel client, KeycloakSession session) throws ModelDuplicateException {
+    if (rep.getClientId() != null && !rep.getClientId().equals(client.getClientId())) {
+        new ClientManager(new RealmManager(session)).clientIdChanged(client, rep);
+    }
+}
+
+private void handleScopeChange(ClientRepresentation rep, ClientModel client) {
+    if (rep.isFullScopeAllowed() != null && rep.isFullScopeAllowed() != client.isFullScopeAllowed()) {
+        auth.clients().requireManage(client);
+    }
+}
+
+private void handleBearerOrPublic(ClientRepresentation rep) {
+    boolean isBearer = Boolean.TRUE.equals(rep.isBearerOnly());
+    boolean isPublic = Boolean.TRUE.equals(rep.isPublicClient());
+    if (isBearer || isPublic) {
+        rep.setAuthorizationServicesEnabled(false);
+    }
+}
+
 
     private void updateAuthorizationSettings(ClientRepresentation rep) {
         if (Profile.isFeatureEnabled(Profile.Feature.AUTHORIZATION)) {

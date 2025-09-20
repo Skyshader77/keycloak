@@ -182,7 +182,7 @@ public class ClientAttributeCertificateResource {
         }
     }
 
-    private CertificateRepresentation updateCertFromRequest() throws IOException {
+/*     private CertificateRepresentation updateCertFromRequest() throws IOException {
         auth.clients().requireManage(client);
         CertificateRepresentation info = new CertificateRepresentation();
         MultivaluedMap<String, FormPartValue> uploadForm = session.getContext().getHttpRequest().getMultiPartFormParameters();
@@ -272,7 +272,125 @@ public class ClientAttributeCertificateResource {
 
         CertificateInfoHelper.updateClientModelCertificateInfo(client, info, attributePrefix);
         return info;
+    } */
+
+    private CertificateRepresentation updateCertFromRequest() throws IOException {
+    auth.clients().requireManage(client);
+    MultivaluedMap<String, FormPartValue> uploadForm = session.getContext().getHttpRequest().getMultiPartFormParameters();
+
+    String keystoreFormat = requireKeystoreFormat(uploadForm);
+    FormPartValue inputParts = uploadForm.getFirst("file");
+    requireFileNotEmpty(inputParts);
+
+    switch (keystoreFormat) {
+        case CERTIFICATE_PEM:
+            return handleCertificatePem(inputParts);
+        case PUBLIC_KEY_PEM:
+            return handlePublicKeyPem(inputParts);
+        case JSON_WEB_KEY_SET:
+            return handleJwks(inputParts);
+        default:
+            return handleKeystore(uploadForm, inputParts, keystoreFormat);
     }
+}
+
+private String requireKeystoreFormat(MultivaluedMap<String, FormPartValue> uploadForm) {
+    FormPartValue part = uploadForm.getFirst("keystoreFormat");
+    if (part == null) {
+        throw new BadRequestException("keystoreFormat cannot be null");
+    }
+    return part.asString();
+}
+
+private void requireFileNotEmpty(FormPartValue inputParts) {
+    try {
+        if (inputParts == null || Strings.isNullOrEmpty(inputParts.asString())) {
+            throw new BadRequestException("file cannot be empty");
+        }
+    } catch (Exception e) {
+        throw new BadRequestException("file cannot be empty");
+    }
+}
+
+private CertificateRepresentation handleCertificatePem(FormPartValue inputParts) throws IOException {
+    String pem = readPem(inputParts);
+    KeycloakModelUtils.getCertificate(pem); // validate
+    CertificateRepresentation info = new CertificateRepresentation();
+    info.setCertificate(pem);
+    CertificateInfoHelper.updateClientModelCertificateInfo(client, info, attributePrefix);
+    return info;
+}
+
+private CertificateRepresentation handlePublicKeyPem(FormPartValue inputParts) throws IOException {
+    String pem = readPem(inputParts);
+    KeycloakModelUtils.getPublicKey(pem); // validate
+    CertificateRepresentation info = new CertificateRepresentation();
+    info.setPublicKey(pem);
+    CertificateInfoHelper.updateClientModelCertificateInfo(client, info, attributePrefix);
+    return info;
+}
+
+private CertificateRepresentation handleJwks(FormPartValue inputParts) throws IOException {
+    String jwks = StreamUtil.readString(inputParts.asInputStream(), StandardCharsets.UTF_8);
+    CertificateRepresentation info = CertificateInfoHelper.jwksStringToSigCertificateRepresentation(jwks);
+
+    if (OIDCLoginProtocol.LOGIN_PROTOCOL.equals(client.getProtocol())) {
+        CertificateInfoHelper.updateClientModelJwksString(client, attributePrefix, jwks);
+    } else {
+        CertificateInfoHelper.updateClientModelCertificateInfo(client, info, attributePrefix);
+    }
+    return info;
+}
+
+private CertificateRepresentation handleKeystore(MultivaluedMap<String, FormPartValue> uploadForm, FormPartValue inputParts, String keystoreFormat) {
+    String keyAlias = uploadForm.getFirst("keyAlias").asString();
+    char[] keyPassword = getPassword(uploadForm.getFirst("keyPassword"));
+    char[] storePassword = getPassword(uploadForm.getFirst("storePassword"));
+
+    CertificateRepresentation info = new CertificateRepresentation();
+    try {
+        KeyStore keyStore = CryptoIntegration.getProvider().getKeyStore(KeystoreFormat.valueOf(keystoreFormat));
+        keyStore.load(inputParts.asInputStream(), storePassword);
+
+        PrivateKey privateKey = getPrivateKey(keyStore, keyAlias, keyPassword);
+        X509Certificate certificate = (X509Certificate) keyStore.getCertificate(keyAlias);
+
+        if (privateKey != null) {
+            info.setPrivateKey(KeycloakModelUtils.getPemFromKey(privateKey));
+        }
+        if (certificate != null) {
+            info.setCertificate(KeycloakModelUtils.getPemFromCertificate(certificate));
+        }
+    } catch (Exception e) {
+        logger.error("Error loading keystore", e);
+        if (e.getCause() instanceof UnrecoverableKeyException keyException) {
+            throw new BadRequestException(keyException.getMessage());
+        }
+        throw new BadRequestException("error loading keystore");
+    }
+
+    CertificateInfoHelper.updateClientModelCertificateInfo(client, info, attributePrefix);
+    return info;
+}
+
+private char[] getPassword(FormPartValue part) {
+    return part != null ? part.asString().toCharArray() : null;
+}
+
+private PrivateKey getPrivateKey(KeyStore keyStore, String keyAlias, char[] keyPassword) {
+    try {
+        return (PrivateKey) keyStore.getKey(keyAlias, keyPassword);
+    } catch (Exception ignored) {
+        return null;
+    }
+}
+
+private String readPem(FormPartValue inputParts) throws IOException {
+    String pem = StreamUtil.readString(inputParts.asInputStream(), StandardCharsets.UTF_8);
+    return PemUtils.removeBeginEnd(pem);
+}
+
+    
 
     /**
      * Get a keystore file for the client, containing private key and public certificate
